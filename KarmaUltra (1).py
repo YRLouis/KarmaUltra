@@ -30,7 +30,7 @@ import os
 #  VERSION & AUTO-UPDATE
 # ═════════════════════════════════════════════
 
-VERSION = "1.1.0"  # Neon Core + Auto-Update
+VERSION = "1.1.2"  # Neon Core + Auto-Update
 
 class Updater:
     """Check and install updates from a remote raw .py URL."""
@@ -2094,44 +2094,65 @@ def run_gui():
                             font=ctk.CTkFont(size=11), text_color=MUTED, anchor="w")
 
     # ════════════════════════════════════════════
-    #  TOP BAR
+    #  TOP BAR (Vetro-style)
     # ════════════════════════════════════════════
-    top = ctk.CTkFrame(app, fg_color=SIDEBAR, height=56, corner_radius=0)
+    top = ctk.CTkFrame(app, fg_color="#0A0A0A", height=48, corner_radius=0)
     top.pack(fill="x")
     top.pack_propagate(False)
 
-    # Logo / title
-    logo_frame = ctk.CTkFrame(top, fg_color="transparent")
-    logo_frame.pack(side="left", padx=18, pady=10)
-    ctk.CTkLabel(logo_frame, text="⚡", font=ctk.CTkFont(size=22),
-                 text_color=ACCENT).pack(side="left")
-    ctk.CTkLabel(logo_frame, text="KARMA ULTRA",
-                 font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
-                 text_color=TEXT).pack(side="left", padx=(6, 0))
-    ctk.CTkLabel(logo_frame, text="  // NEON",
-                 font=ctk.CTkFont(size=11), text_color=ACCENT2).pack(side="left", pady=(4, 0))
+    # Left: logo + title
+    left_top = ctk.CTkFrame(top, fg_color="transparent")
+    left_top.pack(side="left", padx=12, pady=6)
 
-    # Status pill
-    status_pill = ctk.CTkFrame(top, fg_color=CARD, corner_radius=20,
+    icon_path = Path(__file__).parent / "icon.ico"
+    if not icon_path.exists():
+        icon_path = Path.cwd() / "icon.ico"
+    if icon_path.exists():
+        try:
+            from PIL import Image
+            img = Image.open(icon_path).resize((22, 22), Image.LANCZOS)
+            logo_img = ctk.CTkImage(light_image=img, dark_image=img, size=(22, 22))
+            ctk.CTkLabel(left_top, image=logo_img, text="").pack(side="left", padx=(0, 8))
+        except Exception:
+            pass
+
+    ctk.CTkLabel(left_top, text="KARMA ULTRA",
+                 font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+                 text_color=TEXT).pack(side="left")
+    ctk.CTkLabel(left_top, text="  |  TASKS",
+                 font=ctk.CTkFont(size=12), text_color=MUTED).pack(side="left", padx=(4, 0))
+
+    # Right: status + window controls
+    right_top = ctk.CTkFrame(top, fg_color="transparent")
+    right_top.pack(side="right", padx=8, pady=6)
+
+    # Status pill (compact)
+    status_pill = ctk.CTkFrame(right_top, fg_color="#1A1A1A", corner_radius=12,
                                border_width=1, border_color=YELLOW)
-    status_pill.pack(side="right", padx=18, pady=12)
-    status_dot = ctk.CTkLabel(status_pill, text="●", font=ctk.CTkFont(size=10),
+    status_pill.pack(side="left", padx=(0, 12))
+    status_dot = ctk.CTkLabel(status_pill, text="●", font=ctk.CTkFont(size=9),
                               text_color=YELLOW)
-    status_dot.pack(side="left", padx=(10, 4), pady=4)
+    status_dot.pack(side="left", padx=(8, 3), pady=3)
     status_lbl = ctk.CTkLabel(status_pill, text="IDLE",
-                              font=ctk.CTkFont(size=11, weight="bold"),
+                              font=ctk.CTkFont(size=10, weight="bold"),
                               text_color=YELLOW)
-    status_lbl.pack(side="left", padx=(0, 12), pady=4)
+    status_lbl.pack(side="left", padx=(0, 8), pady=3)
 
-    # Clock
-    clock_lbl = ctk.CTkLabel(top, text="", font=ctk.CTkFont(size=12),
-                             text_color=MUTED)
-    clock_lbl.pack(side="right", padx=8)
+    # Window controls (minimize / close style)
+    def minimize():
+        app.iconify()
 
-    def tick_clock():
-        clock_lbl.configure(text=datetime.now().strftime("%H:%M:%S"))
-        app.after(1000, tick_clock)
-    tick_clock()
+    def close_app():
+        app.destroy()
+
+    ctk.CTkButton(right_top, text="—", width=28, height=24, corner_radius=6,
+                  fg_color="#333333", hover_color="#444444", text_color=TEXT,
+                  font=ctk.CTkFont(size=12, weight="bold"),
+                  command=minimize).pack(side="left", padx=2)
+    ctk.CTkButton(right_top, text="✕", width=28, height=24, corner_radius=6,
+                  fg_color="#EF4444", hover_color="#DC2626", text_color="white",
+                  font=ctk.CTkFont(size=11, weight="bold"),
+                  command=close_app).pack(side="left", padx=2)
 
     # ════════════════════════════════════════════
     #  MAIN BODY
