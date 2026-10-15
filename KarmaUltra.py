@@ -30,7 +30,7 @@ import os
 #  VERSION & AUTO-UPDATE
 # ═════════════════════════════════════════════
 
-VERSION = "1.1.2"  # Neon Core + Auto-Update
+VERSION = "1.2.0"  # Neon Core + Auto-Update
 
 class Updater:
     """Check and install updates from a remote raw .py URL."""
@@ -69,6 +69,9 @@ class Updater:
         if not url or not url.startswith("http"):
             return False, "Invalid URL"
         current_path = current_path or Path(__file__).resolve()
+        # When frozen (exe), we cannot replace the running exe easily
+        if getattr(sys, "frozen", False):
+            return False, "Running as .exe — download the new KarmaUltra.py from GitHub and rebuild, or run the .py version for auto-updates."
         try:
             r = requests.get(url, timeout=30)
             if r.status_code != 200:
@@ -76,10 +79,8 @@ class Updater:
             new_code = r.text
             if "VERSION" not in new_code or "def run_gui" not in new_code:
                 return False, "Downloaded file does not look like a valid Karma Ultra script"
-            # Backup
             backup = current_path.with_suffix(".py.bak")
             shutil.copy2(current_path, backup)
-            # Write new
             current_path.write_text(new_code, encoding="utf-8")
             return True, f"Updated successfully. Backup saved to {backup.name}. Restart the bot to apply."
         except Exception as e:
@@ -129,7 +130,7 @@ DEFAULT_CONFIG = {
            "temperature": 0.2},
     "imap": {"email": "", "password": "", "host": "", "port": 993, "ssl": True},
     "update": {
-        "url": "https://raw.githubusercontent.com/YOURUSER/YOURREPO/main/KarmaUltra.py",
+        "url": "https://raw.githubusercontent.com/YRLouis/KarmaUltra/main/KarmaUltra.py",
         "check_on_start": False,
     },
 }
