@@ -21,6 +21,75 @@ from pathlib import Path
 
 import httpx
 import requests
+import sys
+import shutil
+import subprocess
+import os
+
+# ═════════════════════════════════════════════
+#  VERSION & AUTO-UPDATE
+# ═════════════════════════════════════════════
+
+VERSION = "1.1.2"  # Neon Core + Auto-Update
+
+class Updater:
+    """Check and install updates from a remote raw .py URL."""
+
+    @staticmethod
+    def _extract_version(text: str) -> str | None:
+        m = re.search(r'VERSION\s*=\s*["\']([^"\']+)["\']', text)
+        return m.group(1) if m else None
+
+    @staticmethod
+    def check(url: str) -> tuple[bool, str, str]:
+        """Returns (is_newer, remote_version, message)."""
+        if not url or not url.startswith("http"):
+            return False, VERSION, "No valid update URL configured"
+        try:
+            r = requests.get(url, timeout=15)
+            if r.status_code != 200:
+                return False, VERSION, f"HTTP {r.status_code}"
+            remote_ver = Updater._extract_version(r.text)
+            if not remote_ver:
+                return False, VERSION, "Could not find VERSION in remote file"
+            if remote_ver == VERSION:
+                return False, remote_ver, f"Already on latest ({VERSION})"
+            # Simple version compare (split by . and compare ints)
+            def parts(v):
+                return [int(x) if x.isdigit() else 0 for x in v.split(".")]
+            if parts(remote_ver) > parts(VERSION):
+                return True, remote_ver, f"Update available: {VERSION} → {remote_ver}"
+            return False, remote_ver, f"Remote is older or same ({remote_ver})"
+        except Exception as e:
+            return False, VERSION, f"Check failed: {e}"
+
+    @staticmethod
+    def install(url: str, current_path: Path | None = None) -> tuple[bool, str]:
+        """Download, backup current, replace file. Returns (success, message)."""
+        if not url or not url.startswith("http"):
+            return False, "Invalid URL"
+        current_path = current_path or Path(__file__).resolve()
+        try:
+            r = requests.get(url, timeout=30)
+            if r.status_code != 200:
+                return False, f"Download failed: HTTP {r.status_code}"
+            new_code = r.text
+            if "VERSION" not in new_code or "def run_gui" not in new_code:
+                return False, "Downloaded file does not look like a valid Karma Ultra script"
+            # Backup
+            backup = current_path.with_suffix(".py.bak")
+            shutil.copy2(current_path, backup)
+            # Write new
+            current_path.write_text(new_code, encoding="utf-8")
+            return True, f"Updated successfully. Backup saved to {backup.name}. Restart the bot to apply."
+        except Exception as e:
+            return False, f"Install failed: {e}"
+
+    @staticmethod
+    def restart():
+        """Relaunch the current script."""
+        python = sys.executable
+        os.execv(python, [python] + sys.argv)
 
 # ═════════════════════════════════════════════
 #  PATHS / CONFIG
@@ -59,6 +128,10 @@ DEFAULT_CONFIG = {
     "ai": {"provider": "openai", "api_key": "", "model": "gpt-4o-mini",
            "temperature": 0.2},
     "imap": {"email": "", "password": "", "host": "", "port": 993, "ssl": True},
+    "update": {
+        "url": "https://raw.githubusercontent.com/YOURUSER/YOURREPO/main/KarmaUltra.py",
+        "check_on_start": False,
+    },
 }
 
 
@@ -2021,44 +2094,65 @@ def run_gui():
                             font=ctk.CTkFont(size=11), text_color=MUTED, anchor="w")
 
     # ════════════════════════════════════════════
-    #  TOP BAR
+    #  TOP BAR (Vetro-style)
     # ════════════════════════════════════════════
-    top = ctk.CTkFrame(app, fg_color=SIDEBAR, height=56, corner_radius=0)
+    top = ctk.CTkFrame(app, fg_color="#0A0A0A", height=48, corner_radius=0)
     top.pack(fill="x")
     top.pack_propagate(False)
 
-    # Logo / title
-    logo_frame = ctk.CTkFrame(top, fg_color="transparent")
-    logo_frame.pack(side="left", padx=18, pady=10)
-    ctk.CTkLabel(logo_frame, text="⚡", font=ctk.CTkFont(size=22),
-                 text_color=ACCENT).pack(side="left")
-    ctk.CTkLabel(logo_frame, text="KARMA ULTRA",
-                 font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
-                 text_color=TEXT).pack(side="left", padx=(6, 0))
-    ctk.CTkLabel(logo_frame, text="  // NEON",
-                 font=ctk.CTkFont(size=11), text_color=ACCENT2).pack(side="left", pady=(4, 0))
+    # Left: logo + title
+    left_top = ctk.CTkFrame(top, fg_color="transparent")
+    left_top.pack(side="left", padx=12, pady=6)
 
-    # Status pill
-    status_pill = ctk.CTkFrame(top, fg_color=CARD, corner_radius=20,
+    icon_path = Path(__file__).parent / "icon.ico"
+    if not icon_path.exists():
+        icon_path = Path.cwd() / "icon.ico"
+    if icon_path.exists():
+        try:
+            from PIL import Image
+            img = Image.open(icon_path).resize((22, 22), Image.LANCZOS)
+            logo_img = ctk.CTkImage(light_image=img, dark_image=img, size=(22, 22))
+            ctk.CTkLabel(left_top, image=logo_img, text="").pack(side="left", padx=(0, 8))
+        except Exception:
+            pass
+
+    ctk.CTkLabel(left_top, text="KARMA ULTRA",
+                 font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+                 text_color=TEXT).pack(side="left")
+    ctk.CTkLabel(left_top, text="  |  TASKS",
+                 font=ctk.CTkFont(size=12), text_color=MUTED).pack(side="left", padx=(4, 0))
+
+    # Right: status + window controls
+    right_top = ctk.CTkFrame(top, fg_color="transparent")
+    right_top.pack(side="right", padx=8, pady=6)
+
+    # Status pill (compact)
+    status_pill = ctk.CTkFrame(right_top, fg_color="#1A1A1A", corner_radius=12,
                                border_width=1, border_color=YELLOW)
-    status_pill.pack(side="right", padx=18, pady=12)
-    status_dot = ctk.CTkLabel(status_pill, text="●", font=ctk.CTkFont(size=10),
+    status_pill.pack(side="left", padx=(0, 12))
+    status_dot = ctk.CTkLabel(status_pill, text="●", font=ctk.CTkFont(size=9),
                               text_color=YELLOW)
-    status_dot.pack(side="left", padx=(10, 4), pady=4)
+    status_dot.pack(side="left", padx=(8, 3), pady=3)
     status_lbl = ctk.CTkLabel(status_pill, text="IDLE",
-                              font=ctk.CTkFont(size=11, weight="bold"),
+                              font=ctk.CTkFont(size=10, weight="bold"),
                               text_color=YELLOW)
-    status_lbl.pack(side="left", padx=(0, 12), pady=4)
+    status_lbl.pack(side="left", padx=(0, 8), pady=3)
 
-    # Clock
-    clock_lbl = ctk.CTkLabel(top, text="", font=ctk.CTkFont(size=12),
-                             text_color=MUTED)
-    clock_lbl.pack(side="right", padx=8)
+    # Window controls (minimize / close style)
+    def minimize():
+        app.iconify()
 
-    def tick_clock():
-        clock_lbl.configure(text=datetime.now().strftime("%H:%M:%S"))
-        app.after(1000, tick_clock)
-    tick_clock()
+    def close_app():
+        app.destroy()
+
+    ctk.CTkButton(right_top, text="—", width=28, height=24, corner_radius=6,
+                  fg_color="#333333", hover_color="#444444", text_color=TEXT,
+                  font=ctk.CTkFont(size=12, weight="bold"),
+                  command=minimize).pack(side="left", padx=2)
+    ctk.CTkButton(right_top, text="✕", width=28, height=24, corner_radius=6,
+                  fg_color="#EF4444", hover_color="#DC2626", text_color="white",
+                  font=ctk.CTkFont(size=11, weight="bold"),
+                  command=close_app).pack(side="left", padx=2)
 
     # ════════════════════════════════════════════
     #  MAIN BODY
@@ -2708,6 +2802,65 @@ def run_gui():
         f.pack(fill="x", pady=2)
         return f
 
+    # ── AUTO UPDATE ─────────────────────────────
+    upd = settings_section("AUTO UPDATE")
+    field_label(upd, "Update URL (raw .py file)").pack(anchor="w", padx=12, pady=(10, 0))
+    set_vars["update_url"] = ctk.CTkEntry(upd, height=32, fg_color=BG,
+                                          border_color=BORDER, text_color=TEXT)
+    set_vars["update_url"].insert(0, CONFIG.get("update", {}).get("url", ""))
+    set_vars["update_url"].pack(fill="x", padx=12, pady=4)
+
+    set_vars["check_on_start"] = BooleanVar(value=CONFIG.get("update", {}).get("check_on_start", False))
+    ctk.CTkSwitch(upd, text="Check for updates on startup",
+                  variable=set_vars["check_on_start"],
+                  progress_color=ACCENT, button_color=TEXT, fg_color=DIM,
+                  text_color=TEXT).pack(anchor="w", padx=12, pady=6)
+
+    update_status = ctk.CTkLabel(upd, text=f"Current version: {VERSION}",
+                                 font=ctk.CTkFont(size=11), text_color=MUTED)
+    update_status.pack(anchor="w", padx=12, pady=(2, 8))
+
+    upd_btns = ctk.CTkFrame(upd, fg_color="transparent")
+    upd_btns.pack(fill="x", padx=12, pady=(0, 12))
+
+    def do_check_update():
+        url = set_vars["update_url"].get().strip()
+        update_status.configure(text="Checking…", text_color=YELLOW)
+        def work():
+            is_new, ver, msg = Updater.check(url)
+            color = GREEN if is_new else MUTED
+            app.after(0, lambda: update_status.configure(text=msg, text_color=color))
+            app.after(0, lambda: log(f"🔄 Update check: {msg}"))
+        threading.Thread(target=work, daemon=True).start()
+
+    def do_install_update():
+        url = set_vars["update_url"].get().strip()
+        if not messagebox.askyesno("Confirm Update",
+                                   "This will replace the current script with the remote version.\n"
+                                   "A .bak backup will be created.\n\nContinue?"):
+            return
+        update_status.configure(text="Downloading…", text_color=YELLOW)
+        def work():
+            ok, msg = Updater.install(url)
+            color = GREEN if ok else RED
+            app.after(0, lambda: update_status.configure(text=msg, text_color=color))
+            app.after(0, lambda: log(f"🔄 Update: {msg}"))
+            if ok:
+                app.after(0, lambda: messagebox.showinfo(
+                    "Update Ready",
+                    "Update installed.\nRestart the bot to use the new version.\n\n"
+                    "Click OK then close and relaunch, or use the Restart button."))
+        threading.Thread(target=work, daemon=True).start()
+
+    def do_restart():
+        if messagebox.askyesno("Restart", "Restart Karma Ultra now?"):
+            log("♻ Restarting…")
+            app.after(200, Updater.restart)
+
+    neon_btn(upd_btns, "🔄 CHECK", ACCENT, do_check_update, width=100, height=30).pack(side="left", padx=2)
+    neon_btn(upd_btns, "⬇ INSTALL", GREEN, do_install_update, width=110, height=30).pack(side="left", padx=2)
+    neon_btn(upd_btns, "♻ RESTART", ORANGE, do_restart, width=100, height=30).pack(side="left", padx=2)
+
     # Discord
     disc = settings_section("DISCORD")
     field_label(disc, "Webhook URL").pack(anchor="w", padx=12, pady=(10, 0))
@@ -2810,6 +2963,10 @@ def run_gui():
             CONFIG["general"]["keep_browser_open_min"] = int(set_vars["keep_min"].get())
         except ValueError:
             pass
+        if "update" not in CONFIG:
+            CONFIG["update"] = {}
+        CONFIG["update"]["url"] = set_vars["update_url"].get().strip()
+        CONFIG["update"]["check_on_start"] = set_vars["check_on_start"].get()
         jsave(CONFIG_FILE, CONFIG)
         # Re-init AI brain with new key
         global AI
@@ -2832,6 +2989,7 @@ def run_gui():
         fisher = IMAPFisher(cfg)
         ok, msg = fisher.test_connection()
         log(f"{'✅' if ok else '❌'} IMAP: {msg}")
+
 
     set_act = ctk.CTkFrame(set_scroll, fg_color="transparent")
     set_act.pack(fill="x", pady=16)
@@ -2894,7 +3052,15 @@ def run_gui():
     m_groups.configure(text=str(len(state["groups"])))
     refresh_board()
     switch_page("dashboard")
-    log("⚡ Karma Ultra online — Neon Core ready")
+    log(f"⚡ Karma Ultra online — Neon Core v{VERSION}")
+
+    # Optional background update check
+    if CONFIG.get("update", {}).get("check_on_start") and CONFIG.get("update", {}).get("url"):
+        def _startup_check():
+            is_new, ver, msg = Updater.check(CONFIG["update"]["url"])
+            if is_new:
+                app.after(0, lambda: log(f"🔄 {msg} — go to Settings → Auto Update"))
+        threading.Thread(target=_startup_check, daemon=True).start()
 
     app.mainloop()
 
